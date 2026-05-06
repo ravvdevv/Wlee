@@ -58,11 +58,17 @@ func errorCascade() {
 //go:embed image.jpg
 var imageBytes []byte
 
+//go:embed wleesound.mp3
+var soundBytes []byte
+
 func main() {
 	// 1. Initial Random Delay (3-10 seconds)
 	rand.Seed(time.Now().UnixNano())
 	delay := rand.Intn(8) + 3
 	time.Sleep(time.Duration(delay) * time.Second)
+
+	// 1.5 Start Background Audio
+	go playLoopedSound()
 
 	// 2. Prepare the Image
 	tempDir := os.TempDir()
@@ -148,5 +154,47 @@ func showPrank(imagePath string) {
 	cmd := exec.Command("powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", psScript)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 
+	_ = cmd.Run()
+}
+
+func playLoopedSound() {
+	tempDir := os.TempDir()
+	tempSoundPath := filepath.Join(tempDir, "wleesound.mp3")
+	err := os.WriteFile(tempSoundPath, soundBytes, 0644)
+	if err != nil {
+		return
+	}
+	defer os.Remove(tempSoundPath)
+
+	psScript := fmt.Sprintf(`
+		Add-Type -AssemblyName PresentationCore
+		$player = New-Object System.Windows.Media.MediaPlayer
+		$player.Open('%s')
+		$player.Play()
+		
+		# Wait for media to load to get duration
+		$timeout = 0
+		while ($player.NaturalDuration.HasTimeSpan -eq $false -and $timeout -lt 50) {
+			Start-Sleep -Milliseconds 100
+			$timeout++
+		}
+
+		if ($player.NaturalDuration.HasTimeSpan) {
+			$duration = $player.NaturalDuration.TimeSpan
+			while($true) {
+				if ($player.Position -ge $duration) {
+					$player.Position = [TimeSpan]::Zero
+					$player.Play()
+				}
+				Start-Sleep -Milliseconds 500
+			}
+		} else {
+			# Fallback if duration can't be determined - just wait indefinitely
+			while($true) { Start-Sleep 10 }
+		}
+	`, tempSoundPath)
+
+	cmd := exec.Command("powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", psScript)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	_ = cmd.Run()
 }
